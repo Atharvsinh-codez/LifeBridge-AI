@@ -49,6 +49,11 @@ if (!supabaseAdmin) {
 
 const store = new MemoryStore();
 const authService = new AuthService(env.GUEST_SESSION_JWT_SECRET, env.SUPABASE_JWT_SECRET);
+logger.info({
+  supabaseJwtSecretConfigured: !!env.SUPABASE_JWT_SECRET,
+  supabaseJwtSecretLength: env.SUPABASE_JWT_SECRET?.length,
+  supabaseJwtSecretPreview: env.SUPABASE_JWT_SECRET?.slice(0, 8) + '...',
+}, 'Auth config');
 const translationService = new TranslationService(env.LINGO_API_KEY, env.LINGO_ENGINE_ID);
 const contextService = new ContextService(env.GEMINI_API_KEY, env.GEMINI_CONTEXT_MODEL);
 const r2Storage = new R2StorageService({

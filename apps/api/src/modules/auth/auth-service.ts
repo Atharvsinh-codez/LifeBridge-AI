@@ -45,15 +45,19 @@ export class AuthService {
   resolveIdentity(request: Request): RequestIdentity | null {
     const authHeader = request.header('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+      console.log('[Auth] No Bearer token in request');
       return null;
     }
 
     const token = authHeader.slice(7);
+    console.log(`[Auth] Token received: ${token.slice(0, 20)}...`);
+    console.log(`[Auth] JWT secret configured: ${!!this.supabaseJwtSecret}, length: ${this.supabaseJwtSecret?.length}`);
     return this.verifySupabaseJwt(token);
   }
 
   private verifySupabaseJwt(token: string): RequestIdentity | null {
     if (!this.supabaseJwtSecret) {
+      console.error('[Auth] No Supabase JWT secret configured');
       return null;
     }
 
@@ -63,6 +67,7 @@ export class AuthService {
       }) as SupabaseJwtPayload;
 
       if (!decoded.sub) {
+        console.error('[Auth] JWT decoded but no sub claim');
         return null;
       }
 
@@ -71,13 +76,17 @@ export class AuthService {
         decoded.user_metadata?.role ??
         'user';
 
+      console.log(`[Auth] Identity resolved: userId=${decoded.sub}, role=${role}`);
+
       return {
         userId: decoded.sub,
         role,
         preferredLocale: decoded.user_metadata?.preferred_locale ?? 'en',
         email: decoded.email,
       };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[Auth] JWT verification FAILED: ${message}`);
       return null;
     }
   }
