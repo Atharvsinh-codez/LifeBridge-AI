@@ -1,5 +1,7 @@
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+
+// ─── R2 Storage Client (exact LangoWorld pattern) ───
 
 export class R2StorageService {
     private readonly client: S3Client | null;
@@ -39,60 +41,50 @@ export class R2StorageService {
         console.log(`[R2Storage] Initialized: bucket=${this.bucket}, prefix=${this.prefix}`);
     }
 
-    /** Generate a 32-char hash key from text + locale + voice */
-    generateKey(text: string, locale: string, voiceName: string): string {
-        const hash = createHash('sha256')
-            .update(`${text}|${locale}|${voiceName}`)
-            .digest('hex')
-            .slice(0, 32);
-        return `${this.prefix}/${hash}`;
+    /** SHA-256 hash of text (32 chars) — deterministic key */
+    computeTextHash(text: string): string {
+        return createHash('sha256').update(text.trim()).digest('hex').substring(0, 32);
     }
 
-    /** Check if audio already exists in R2 */
-    async exists(key: string): Promise<boolean> {
-        if (!this.client) return false;
+    /** R2 key for audio: {prefix}/{textHash}-{language}.wav */
+    getAudioKey(textHash: string, language: string): string {
+        return `${this.prefix}/${textHash}-${language}.wav`;
+    }
+
+    /** HEAD check — does the audio exist in R2? Returns public URL or null */
+    async checkExists(key: string): Promise<string | null> {
+        if (!this.client) return null;
 
         try {
             await this.client.send(new HeadObjectCommand({
                 Bucket: this.bucket,
                 Key: key,
             }));
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /** Upload audio to R2, returns public URL */
-    async upload(key: string, audioBuffer: Buffer, mimeType: string): Promise<string | null> {
-        if (!this.client) return null;
-
-        try {
-            const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') ? 'mp3' : 'audio';
-            const fullKey = `${key}.${ext}`;
-
-            await this.client.send(new PutObjectCommand({
-                Bucket: this.bucket,
-                Key: fullKey,
-                Body: audioBuffer,
-                ContentType: mimeType,
-                CacheControl: 'public, max-age=31536000, immutable',
-            }));
-
-            const url = `${this.publicUrl}/${fullKey}`;
-            console.log(`[R2Storage] Uploaded: ${fullKey}`);
-            return url;
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`[R2Storage] Upload failed: ${message}`);
+            return `${this.publicUrl}/${key}`;
+        } catch (error: any) {
+            if (error?.name === 'NotFound' || error?.$metadata?.httpStatusCode === 404) {
+                return null;
+            }
+            console.warn('[R2Storage] HEAD check error:', error?.name || error);
             return null;
         }
     }
 
-    /** Get public URL for a cached audio file */
-    getPublicUrl(key: string, mimeType: string): string {
-        const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') ? 'mp3' : 'audio';
-        return `${this.publicUrl}/${key}.${ext}`;
+    /** Upload audio buffer to R2, returns public URL */
+    async upload(key: string, audioBuffer: Buffer, contentType: string): Promise<string> {
+        if (!this.client) throw new Error('R2 not configured');
+
+        await this.client.send(new PutObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            Body: audioBuffer,
+            ContentType: contentType,
+            CacheControl: 'public, max-age=31536000, immutable',
+        }));
+
+        const url = `${this.publicUrl}/${key}`;
+        console.log(`[R2Storage] Uploaded: ${key} (${audioBuffer.length} bytes)`);
+        return url;
     }
 
     get isConfigured(): boolean {
