@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@lifebridge/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@lifebridge/config": [
+        "packages/config/src/index.ts"
+      ],
+      "@lifebridge/ui": [
+        "packages/ui/src/index.tsx"
+      ],
+      "@lifebridge/emergency-knowledge": [
+        "packages/emergency-knowledge/src/index.ts"
+      ],
+      "@lifebridge/prompts": [
+        "packages/prompts/src/index.ts"
+      ],
+      "@lifebridge/validation": [
+        "packages/validation/src/index.ts"
+      ]
+    }
+  }
+}
+
