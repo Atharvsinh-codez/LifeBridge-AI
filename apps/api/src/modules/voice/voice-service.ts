@@ -92,10 +92,51 @@ export class VoiceService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[VoiceService] TTS ERROR: ${message}`);
-      if (error instanceof Error && error.stack) {
-        console.error(error.stack);
+
+      // Retry once on 429 rate-limit (extract retry delay from error)
+      if (message.includes('429') || message.includes('RESOURCE_EXHAUSTED')) {
+        const retryMatch = message.match(/retryDelay":"?(\d+)/);
+        const waitSecs = retryMatch ? Math.min(parseInt(retryMatch[1], 10), 30) : 25;
+        console.warn(`[VoiceService] Rate limited — retrying in ${waitSecs}s...`);
+
+        await new Promise((resolve) => setTimeout(resolve, waitSecs * 1000));
+
+        try {
+          const retryResponse = await this.client.models.generateContent({
+            model: this.model,
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: `Say the following text naturally: ${text}` }],
+              },
+            ],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
+              },
+            },
+          });
+
+          const retryPart = retryResponse.candidates?.[0]?.content?.parts?.find(
+            (part) => 'inlineData' in part && part.inlineData,
+          );
+
+          if (retryPart && 'inlineData' in retryPart && retryPart.inlineData) {
+            console.log(`[VoiceService] TTS retry success`);
+            return {
+              audioBase64: retryPart.inlineData.data ?? null,
+              audioMimeType: retryPart.inlineData.mimeType ?? 'audio/wav',
+            };
+          }
+        } catch (retryError) {
+          console.error(`[VoiceService] TTS retry also failed`);
+        }
       }
+
+      console.error(`[VoiceService] TTS ERROR: ${message}`);
       return { audioBase64: null, audioMimeType: null };
     }
   }

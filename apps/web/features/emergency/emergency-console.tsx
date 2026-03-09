@@ -50,6 +50,16 @@ const LANGUAGES = [
   { code: 'sw', label: 'Swahili' },
 ];
 
+/* ── Browser speech fallback when Gemini TTS quota is exhausted ── */
+function speakWithBrowser(text: string, locale: string) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = locale;
+  utterance.rate = 0.9;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
 export function EmergencyConsole() {
   const wsRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -104,12 +114,16 @@ export function EmergencyConsole() {
       setAssessment(event.payload.assessment);
       setIsTranslating(false);
 
-      // Play Gemini TTS audio if available
+      // Play Gemini TTS audio if available, otherwise use browser speech
       if (event.payload.turn.audioBase64 && event.payload.turn.audioMimeType) {
         const audio = new Audio(`data:${event.payload.turn.audioMimeType};base64,${event.payload.turn.audioBase64}`);
         audio.play().catch(() => {
-          // TTS playback failed — silent fallback, text is still visible
+          // If playback fails, try browser speech
+          speakWithBrowser(event.payload.turn.translatedText, event.payload.turn.targetLanguage);
         });
+      } else if (event.payload.turn.translatedText) {
+        // Server TTS unavailable (quota exhausted) — use browser speech
+        speakWithBrowser(event.payload.turn.translatedText, event.payload.turn.targetLanguage);
       }
 
       return;
@@ -171,8 +185,8 @@ export function EmergencyConsole() {
         });
 
         bootstrap({
-          session: created.session,
-          participant: created.participant,
+          session: created.session as any,
+          participant: created.participant as any,
           token: created.token,
           wsUrl: created.wsUrl,
         });
@@ -257,8 +271,8 @@ export function EmergencyConsole() {
             initiatorName: 'Caller',
           });
           bootstrap({
-            session: created.session,
-            participant: created.participant,
+            session: created.session as any,
+            participant: created.participant as any,
             token: created.token,
             wsUrl: created.wsUrl,
           });
@@ -319,8 +333,8 @@ export function EmergencyConsole() {
           {/* Giant Mic Button */}
           <button
             className={`flex w-full items-center justify-center gap-4 py-8 text-center font-pixel text-xl uppercase tracking-widest transition-all ${isMicActive
-                ? 'animate-pulse border-4 border-theme-black bg-theme-red text-theme-white shadow-none'
-                : 'border-4 border-theme-black bg-theme-red text-theme-white shadow-[6px_6px_0_var(--theme-black)] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[3px_3px_0_var(--theme-black)]'
+              ? 'animate-pulse border-4 border-theme-black bg-theme-red text-theme-white shadow-none'
+              : 'border-4 border-theme-black bg-theme-red text-theme-white shadow-[6px_6px_0_var(--theme-black)] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[3px_3px_0_var(--theme-black)]'
               }`}
             onClick={handleMicCapture}
           >
