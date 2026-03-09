@@ -1,4 +1,5 @@
 import { R2StorageService } from './r2-storage';
+import { getNextApiKey, markKeyFailed, markKeySuccess } from './api-key-rotation';
 
 // ─── PCM to WAV conversion (exact LangoWorld implementation) ───
 
@@ -45,15 +46,15 @@ function pcmToWav(
   return buffer;
 }
 
-// ─── Gemini TTS via raw REST API (exact LangoWorld approach) ───
+// ─── Gemini TTS via raw REST API (with key rotation) ───
 
 async function generateTTSWithGemini(
   text: string,
-  apiKey: string,
-  model: string,
   retryCount = 0,
   maxRetries = 3,
 ): Promise<{ buffer: Buffer; mimeType: string }> {
+  const apiKey = getNextApiKey();
+  const model = 'gemini-2.5-flash-preview-tts';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   console.log(`[TTS] Calling Gemini TTS API... (attempt ${retryCount + 1}/${maxRetries + 1})`);
@@ -72,13 +73,13 @@ async function generateTTSWithGemini(
 
     if (!response.ok) {
       const errorData = await response.text();
+      markKeyFailed(apiKey, response.status);
 
-      // Retry on 429, 500, 503 with exponential backoff
       if ((response.status === 429 || response.status === 500 || response.status === 503) && retryCount < maxRetries) {
         const delay = Math.pow(2, retryCount) * 1000;
         console.log(`[TTS] Gemini ${response.status} error, retrying after ${delay}ms...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return generateTTSWithGemini(text, apiKey, model, retryCount + 1, maxRetries);
+        return generateTTSWithGemini(text, retryCount + 1, maxRetries);
       }
 
       throw new Error(`Gemini TTS API error: ${response.status} - ${errorData}`);
@@ -88,9 +89,10 @@ async function generateTTSWithGemini(
 
     if (!data.candidates?.[0]?.content) {
       console.error('[TTS] Invalid Gemini response:', JSON.stringify(data).substring(0, 500));
+      markKeyFailed(apiKey);
       if (retryCount < maxRetries) {
-        console.log('[TTS] Retrying...');
-        return generateTTSWithGemini(text, apiKey, model, retryCount + 1, maxRetries);
+        console.log('[TTS] Retrying with next API key...');
+        return generateTTSWithGemini(text, retryCount + 1, maxRetries);
       }
       throw new Error('Invalid response format from Gemini TTS API');
     }
@@ -101,11 +103,15 @@ async function generateTTSWithGemini(
 
     if (!audioPart?.inlineData) {
       console.error('[TTS] No audio part in response');
+      markKeyFailed(apiKey);
       if (retryCount < maxRetries) {
-        return generateTTSWithGemini(text, apiKey, model, retryCount + 1, maxRetries);
+        console.log('[TTS] Retrying with next API key...');
+        return generateTTSWithGemini(text, retryCount + 1, maxRetries);
       }
       throw new Error('No audio data in response');
     }
+
+    markKeySuccess(apiKey);
 
     const mimeType = audioPart.inlineData.mimeType || 'audio/mpeg';
     const audioBuffer = Buffer.from(audioPart.inlineData.data, 'base64');
@@ -113,52 +119,35 @@ async function generateTTSWithGemini(
 
     return { buffer: audioBuffer, mimeType };
   } catch (error) {
-    console.error('[TTS] Gemini error:', error);
+    if (error instanceof Error && !error.message.startsWith('Gemini TTS')) {
+      markKeyFailed(apiKey);
+    }
     throw error;
   }
 }
 
 // ─── Generate audio with PCM→WAV handling ───
 
-async function generateAudioForText(
-  text: string,
-  apiKey: string,
-  model: string,
-): Promise<{ buffer: Buffer; mimeType: string }> {
-  const result = await generateTTSWithGemini(text, apiKey, model);
-  let audioBuffer = result.buffer;
-  let mimeType = result.mimeType;
-
-  // Convert PCM/L16 to WAV
+function processAudioBuffer(buffer: Buffer, mimeType: string): { buffer: Buffer; mimeType: string } {
   if (mimeType.includes('L16') || mimeType.includes('pcm')) {
     let sampleRate = 24000;
     const rateMatch = mimeType.match(/rate=(\d+)/);
     if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
     console.log(`[TTS] Converting PCM to WAV (sample rate: ${sampleRate}Hz)`);
-    audioBuffer = pcmToWav(result.buffer, sampleRate);
-    mimeType = 'audio/wav';
+    return { buffer: pcmToWav(buffer, sampleRate), mimeType: 'audio/wav' };
   }
-
-  console.log(`[TTS] Final audio: ${mimeType}, ${audioBuffer.length} bytes`);
-  return { buffer: audioBuffer, mimeType };
+  return { buffer, mimeType };
 }
 
-// ─── Voice Service (orchestrates TTS + R2 caching) ───
+// ─── Voice Service ───
 
 export class VoiceService {
-  private readonly apiKey: string | undefined;
-
   constructor(
-    apiKey: string | undefined,
+    _apiKey: string | undefined, // kept for backward compat, key rotation handles keys
     private readonly model: string,
     private readonly r2: R2StorageService,
   ) {
-    this.apiKey = apiKey;
-    if (!apiKey) {
-      console.warn('[VoiceService] No GEMINI_API_KEY — TTS disabled');
-    } else {
-      console.log(`[VoiceService] Initialized: model=${model}, r2=${r2.isConfigured ? 'enabled' : 'disabled'}`);
-    }
+    console.log(`[VoiceService] Initialized: model=${model}, r2=${r2.isConfigured ? 'enabled' : 'disabled'}`);
   }
 
   async synthesize(
@@ -169,14 +158,10 @@ export class VoiceService {
     audioMimeType: string | null;
     audioUrl: string | null;
   }> {
-    if (!this.apiKey) {
-      return { audioBase64: null, audioMimeType: null, audioUrl: null };
-    }
-
     // Step 1: Compute deterministic hash
     const textHash = this.r2.computeTextHash(text);
     const r2Key = this.r2.getAudioKey(textHash, targetLocale);
-    console.log(`[VoiceService] TTS request: text="${text.substring(0, 60)}..." lang=${targetLocale} hash=${textHash}`);
+    console.log(`[VoiceService] TTS: "${text.substring(0, 60)}..." lang=${targetLocale} hash=${textHash}`);
 
     // Step 2: Check R2 cache
     if (this.r2.isConfigured) {
@@ -188,12 +173,13 @@ export class VoiceService {
       console.log('[VoiceService] ✗ Cache MISS — generating audio...');
     }
 
-    // Step 3: Generate audio via Gemini TTS
+    // Step 3: Generate audio via Gemini TTS (with key rotation)
     try {
-      const { buffer: audioBuffer, mimeType } = await generateAudioForText(text, this.apiKey, this.model);
+      const raw = await generateTTSWithGemini(text);
+      const { buffer: audioBuffer, mimeType } = processAudioBuffer(raw.buffer, raw.mimeType);
       const base64 = audioBuffer.toString('base64');
 
-      // Step 4: Upload to R2 (non-blocking)
+      // Step 4: Upload to R2
       let audioUrl: string | null = null;
       if (this.r2.isConfigured) {
         try {
@@ -201,7 +187,6 @@ export class VoiceService {
           console.log(`[VoiceService] ✓ Stored to R2: ${audioUrl}`);
         } catch (uploadError) {
           console.error('[VoiceService] R2 upload failed:', uploadError);
-          // Audio still available as base64 even if R2 fails
         }
       }
 

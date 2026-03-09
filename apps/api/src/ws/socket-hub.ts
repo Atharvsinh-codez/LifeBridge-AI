@@ -138,7 +138,7 @@ export function registerSocketHub(
             },
           });
 
-          if (!processed.turn.audioBase64) {
+          if (!processed.turn.audioBase64 && !(processed.turn as any).audioUrl) {
             broadcast(event.payload.sessionId, {
               type: 'session.warning',
               payload: {

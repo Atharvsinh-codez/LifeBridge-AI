@@ -170,24 +170,34 @@ export function EmergencyConsole() {
     }));
   }
 
-  /* ── Mic capture ── */
+  /* ── Mic capture (guarded with ref to prevent double-fires) ── */
+  const micActiveRef = useRef(false);
   function handleMicCapture() {
-    if (isMicActive) return;
+    if (micActiveRef.current || isMicActive) return;
     const recognition = createSpeechRecognition(sourceLocale);
     if (!recognition) {
       addWarning('Speech recognition unavailable in this browser.');
       return;
     }
+    micActiveRef.current = true;
     setIsMicActive(true);
+    let hasSent = false; // prevent duplicate sends
     recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (hasSent) return;
+      const result = event.results[0];
+      if (!result?.isFinal) return; // only accept final results
+      const transcript = result[0]?.transcript?.trim();
       if (transcript) {
+        hasSent = true;
         setManualText(transcript);
         sendTurn(transcript);
       }
     };
     recognition.onerror = () => addWarning('Mic capture failed. Try again or type.');
-    recognition.onend = () => setIsMicActive(false);
+    recognition.onend = () => {
+      micActiveRef.current = false;
+      setIsMicActive(false);
+    };
     recognition.start();
   }
 
@@ -267,8 +277,8 @@ export function EmergencyConsole() {
           <div className="flex border-2 border-theme-black">
             <button
               className={`flex flex-1 items-center justify-center gap-2 py-3 font-pixel text-[10px] uppercase tracking-widest transition-all ${inputMode === 'voice'
-                  ? 'bg-theme-red text-theme-white shadow-inner'
-                  : 'bg-theme-white text-theme-black hover:bg-theme-black/5'
+                ? 'bg-theme-red text-theme-white shadow-inner'
+                : 'bg-theme-white text-theme-black hover:bg-theme-black/5'
                 }`}
               onClick={() => setInputMode('voice')}
             >
@@ -276,8 +286,8 @@ export function EmergencyConsole() {
             </button>
             <button
               className={`flex flex-1 items-center justify-center gap-2 border-l-2 border-theme-black py-3 font-pixel text-[10px] uppercase tracking-widest transition-all ${inputMode === 'text'
-                  ? 'bg-theme-red text-theme-white shadow-inner'
-                  : 'bg-theme-white text-theme-black hover:bg-theme-black/5'
+                ? 'bg-theme-red text-theme-white shadow-inner'
+                : 'bg-theme-white text-theme-black hover:bg-theme-black/5'
                 }`}
               onClick={() => setInputMode('text')}
             >
@@ -292,8 +302,8 @@ export function EmergencyConsole() {
               <div className="space-y-4">
                 <button
                   className={`flex w-full items-center justify-center gap-4 py-10 font-pixel text-xl uppercase tracking-widest transition-all ${isMicActive
-                      ? 'animate-pulse border-4 border-theme-black bg-theme-red text-theme-white'
-                      : 'border-4 border-theme-black bg-theme-red text-theme-white shadow-[6px_6px_0_var(--theme-black)] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[3px_3px_0_var(--theme-black)]'
+                    ? 'animate-pulse border-4 border-theme-black bg-theme-red text-theme-white'
+                    : 'border-4 border-theme-black bg-theme-red text-theme-white shadow-[6px_6px_0_var(--theme-black)] hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[3px_3px_0_var(--theme-black)]'
                     }`}
                   onClick={handleMicCapture}
                   disabled={!isConnected}

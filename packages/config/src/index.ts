@@ -21,6 +21,7 @@ export const apiEnvSchema = z.object({
   LINGO_API_KEY: z.string().optional(),
   LINGO_ENGINE_ID: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GOOGLE_API_KEYS: z.string().optional(),
   GEMINI_CONTEXT_MODEL: z.string().default('gemini-2.5-flash'),
   GEMINI_TTS_MODEL: z.string().default('gemini-2.5-flash-preview-tts'),
   R2_ACCOUNT_ID: z.string().optional(),
