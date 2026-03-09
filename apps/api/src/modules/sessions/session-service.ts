@@ -118,7 +118,7 @@ export class SessionService {
     }
 
     return {
-      turn: result.turn,
+      turn: { ...result.turn, audioUrl: audio.audioUrl },
       incident: result.incident,
       assessment,
       overview: this.store.getOverview(payload.sessionId),

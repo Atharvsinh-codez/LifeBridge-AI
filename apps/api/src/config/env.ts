@@ -26,8 +26,8 @@ function loadRootEnv() {
                     if (!trimmed || trimmed.startsWith('#')) continue;
                     const eqIndex = trimmed.indexOf('=');
                     if (eqIndex === -1) continue;
-                    const key = trimmed.slice(0, eqIndex);
-                    const value = trimmed.slice(eqIndex + 1);
+                    const key = trimmed.slice(0, eqIndex).replace(/\r/g, '');
+                    const value = trimmed.slice(eqIndex + 1).replace(/\r/g, '');
                     if (!process.env[key]) {
                         process.env[key] = value;
                         loaded++;

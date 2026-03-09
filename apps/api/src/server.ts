@@ -19,6 +19,7 @@ import { createSessionRouter } from './modules/sessions/session-routes';
 import { MemoryStore } from './modules/sessions/store';
 import { TranslationService } from './modules/translation/translation-service';
 import { VoiceService } from './modules/voice/voice-service';
+import { R2StorageService } from './modules/voice/r2-storage';
 import { registerSocketHub } from './ws/socket-hub';
 
 const logger = pino({
@@ -50,7 +51,15 @@ const store = new MemoryStore();
 const authService = new AuthService(env.GUEST_SESSION_JWT_SECRET, env.SUPABASE_JWT_SECRET);
 const translationService = new TranslationService(env.LINGO_API_KEY, env.LINGO_ENGINE_ID);
 const contextService = new ContextService(env.GEMINI_API_KEY, env.GEMINI_CONTEXT_MODEL);
-const voiceService = new VoiceService(env.GEMINI_API_KEY, env.GEMINI_TTS_MODEL);
+const r2Storage = new R2StorageService({
+  accountId: env.R2_ACCOUNT_ID,
+  accessKeyId: env.R2_ACCESS_KEY_ID,
+  secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+  bucketName: env.R2_BUCKET_NAME,
+  publicUrl: env.R2_PUBLIC_URL,
+  voicePrefix: env.R2_VOICE_PREFIX,
+});
+const voiceService = new VoiceService(env.GEMINI_API_KEY, env.GEMINI_TTS_MODEL, r2Storage);
 const sessionService = new SessionService(store, contextService, translationService, voiceService);
 
 app.get('/health', (_request, response) => {

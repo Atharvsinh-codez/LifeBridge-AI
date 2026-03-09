@@ -12,6 +12,7 @@
     "test": "node -e \"process.exit(0)\""
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1005.0",
     "@google/genai": "^1.44.0",
     "@lifebridge/config": "workspace:*",
     "@lifebridge/emergency-knowledge": "workspace:*",

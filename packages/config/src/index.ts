@@ -23,6 +23,12 @@ export const apiEnvSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_CONTEXT_MODEL: z.string().default('gemini-2.5-flash'),
   GEMINI_TTS_MODEL: z.string().default('gemini-2.5-flash-preview-tts'),
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET_NAME: z.string().optional(),
+  R2_PUBLIC_URL: z.string().optional(),
+  R2_VOICE_PREFIX: z.string().default('LifeBridgeAI/voice-tts'),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

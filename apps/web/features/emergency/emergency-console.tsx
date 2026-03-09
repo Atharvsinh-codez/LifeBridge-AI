@@ -67,7 +67,7 @@ export function EmergencyConsole() {
   const [sourceLocale, setSourceLocale] = useState('en');
   const [targetLocale, setTargetLocale] = useState('hi');
   const [isMicActive, setIsMicActive] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
+  const [processingCount, setProcessingCount] = useState(0);
   const sessionStartedRef = useRef(false);
 
   const {
@@ -112,18 +112,19 @@ export function EmergencyConsole() {
     if (event.type === 'turn.completed') {
       addTurn(event.payload.turn);
       setAssessment(event.payload.assessment);
-      setIsTranslating(false);
+      setProcessingCount((c) => c - 1);
 
       // Play Gemini TTS audio if available, otherwise use browser speech
-      if (event.payload.turn.audioBase64 && event.payload.turn.audioMimeType) {
-        const audio = new Audio(`data:${event.payload.turn.audioMimeType};base64,${event.payload.turn.audioBase64}`);
-        audio.play().catch(() => {
-          // If playback fails, try browser speech
-          speakWithBrowser(event.payload.turn.translatedText, event.payload.turn.targetLanguage);
-        });
-      } else if (event.payload.turn.translatedText) {
-        // Server TTS unavailable (quota exhausted) — use browser speech
-        speakWithBrowser(event.payload.turn.translatedText, event.payload.turn.targetLanguage);
+      const turn = event.payload.turn as any;
+      if (turn.audioUrl) {
+        // Play from R2 cache URL
+        const audio = new Audio(turn.audioUrl);
+        audio.play().catch(() => speakWithBrowser(turn.translatedText, turn.targetLanguage));
+      } else if (turn.audioBase64 && turn.audioMimeType) {
+        const audio = new Audio(`data:${turn.audioMimeType};base64,${turn.audioBase64}`);
+        audio.play().catch(() => speakWithBrowser(turn.translatedText, turn.targetLanguage));
+      } else if (turn.translatedText) {
+        speakWithBrowser(turn.translatedText, turn.targetLanguage);
       }
 
       return;
@@ -208,7 +209,7 @@ export function EmergencyConsole() {
       return;
     }
 
-    setIsTranslating(true);
+    setProcessingCount((c) => c + 1);
 
     wsRef.current.send(
       JSON.stringify({
@@ -295,7 +296,7 @@ export function EmergencyConsole() {
           <StatusBadge tone={connectionState === 'connected' ? 'success' : connectionState === 'connecting' ? 'warning' : 'neutral'}>
             {connectionState === 'connected' ? 'LIVE' : connectionState === 'connecting' ? 'CONNECTING...' : connectionState === 'error' ? 'ERROR' : 'STANDBY'}
           </StatusBadge>
-          {isTranslating && <StatusBadge tone="warning">TRANSLATING...</StatusBadge>}
+          {processingCount > 0 && <StatusBadge tone="warning">TRANSLATING {processingCount}...</StatusBadge>}
         </div>
 
         {/* Language selector */}
@@ -397,29 +398,45 @@ export function EmergencyConsole() {
                 Speak or type to begin translation...
               </p>
             ) : (
-              turns.map((turn) => (
-                <div key={turn.id} className="border-2 border-theme-black bg-theme-white p-5 shadow-[3px_3px_0_var(--theme-black)]">
-                  <div className="flex flex-wrap items-center gap-3 pb-3">
-                    <StatusBadge tone={turn.severitySnapshot === 'critical' ? 'critical' : 'warning'}>
-                      {turn.emergencyTypeSnapshot}
-                    </StatusBadge>
-                    <StatusBadge tone="neutral">{turn.detectedLanguage} → {turn.targetLanguage}</StatusBadge>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div>
-                      <p className="font-pixel text-[9px] uppercase tracking-widest text-theme-black/50">ORIGINAL</p>
-                      <p className="mt-1 font-mono text-base font-semibold text-theme-black">{turn.originalText}</p>
+              turns.map((turn) => {
+                const turnAny = turn as any;
+                return (
+                  <div key={turn.id} className="border-2 border-theme-black bg-theme-white p-5 shadow-[3px_3px_0_var(--theme-black)]">
+                    <div className="flex flex-wrap items-center gap-3 pb-3">
+                      <StatusBadge tone={turn.severitySnapshot === 'critical' ? 'critical' : 'warning'}>
+                        {turn.emergencyTypeSnapshot}
+                      </StatusBadge>
+                      <StatusBadge tone="neutral">{turn.detectedLanguage} → {turn.targetLanguage}</StatusBadge>
                     </div>
-                    <div>
-                      <p className="font-pixel text-[9px] uppercase tracking-widest text-theme-red">
-                        TRANSLATED
-                        {turn.audioBase64 && <Volume2 className="ml-2 inline h-3 w-3" />}
-                      </p>
-                      <p className="mt-1 font-mono text-lg font-bold text-theme-red">{turn.translatedText}</p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <p className="font-pixel text-[9px] uppercase tracking-widest text-theme-black/50">ORIGINAL</p>
+                        <p className="mt-1 font-mono text-base font-semibold text-theme-black">{turn.originalText}</p>
+                      </div>
+                      <div>
+                        <p className="font-pixel text-[9px] uppercase tracking-widest text-theme-red">
+                          TRANSLATED
+                        </p>
+                        <p className="mt-1 font-mono text-lg font-bold text-theme-red">{turn.translatedText}</p>
+                        <button
+                          className="mt-2 flex items-center gap-2 border-2 border-theme-black bg-theme-black px-3 py-1.5 font-pixel text-[9px] uppercase tracking-widest text-theme-white shadow-[2px_2px_0_var(--theme-red)] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_var(--theme-red)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                          onClick={() => {
+                            if (turnAny.audioUrl) {
+                              new Audio(turnAny.audioUrl).play().catch(() => speakWithBrowser(turn.translatedText, turn.targetLanguage));
+                            } else if (turn.audioBase64 && turn.audioMimeType) {
+                              new Audio(`data:${turn.audioMimeType};base64,${turn.audioBase64}`).play().catch(() => speakWithBrowser(turn.translatedText, turn.targetLanguage));
+                            } else {
+                              speakWithBrowser(turn.translatedText, turn.targetLanguage);
+                            }
+                          }}
+                        >
+                          <Volume2 className="h-3 w-3" /> REPLAY
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </SectionCard>
