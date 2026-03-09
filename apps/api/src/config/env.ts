@@ -1,15 +1,19 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// ESM-compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __esm_dirname = dirname(__filename);
 
 // Load the root monorepo .env file so all env vars are available to the API.
 // On Render (production), env vars are set via the Dashboard — this is safely skipped.
 function loadRootEnv() {
-    // Try multiple possible paths (depends on how the API is started)
     const candidates = [
-        resolve(process.cwd(), '.env'),          // if run from monorepo root
-        resolve(process.cwd(), '../../.env'),     // if run from apps/api
-        resolve(__dirname, '../../../.env'),       // relative to compiled output
-        resolve(__dirname, '../../../../.env'),    // another possible level
+        resolve(process.cwd(), '.env'),
+        resolve(process.cwd(), '../../.env'),
+        resolve(__esm_dirname, '../../../.env'),
+        resolve(__esm_dirname, '../../../../.env'),
     ];
 
     for (const envPath of candidates) {
@@ -37,7 +41,7 @@ function loadRootEnv() {
         }
     }
 
-    console.warn('[env] No .env file found — using process environment only');
+    console.log('[env] No .env file found — using process environment only (expected on Render)');
 }
 
 loadRootEnv();

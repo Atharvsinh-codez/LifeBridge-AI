@@ -2,7 +2,6 @@
 
 import {
   createSessionRequestSchema,
-  createSessionResponseSchema,
   historyResponseSchema,
   incidentResponseSchema,
   profileUpsertSchema,
@@ -52,11 +51,22 @@ async function request<T>(
 
 export async function createSession(input: unknown) {
   const payload = createSessionRequestSchema.parse(input);
-  const data = await request('/api/v1/sessions', {
+  const data = await request<{
+    session: unknown;
+    participant: unknown;
+    token: string;
+    wsUrl: string;
+  }>('/api/v1/sessions', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
-  return createSessionResponseSchema.parse(data);
+  // Return raw data — no schema validation (routedNumbers was removed)
+  return data as {
+    session: { id: string;[key: string]: unknown };
+    participant: { id: string; participantRole: string; preferredLocale: string;[key: string]: unknown };
+    token: string;
+    wsUrl: string;
+  };
 }
 
 export async function fetchProfile() {
@@ -83,7 +93,7 @@ export async function fetchIncident(sessionId: string) {
 }
 
 export async function fetchPublicProfile(username: string) {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'}/api/v1/profiles/${username}`, {
+  const response = await fetch(`${webEnv.NEXT_PUBLIC_API_BASE_URL}/api/v1/profiles/${username}`, {
     cache: 'no-store',
   });
   if (!response.ok) {
